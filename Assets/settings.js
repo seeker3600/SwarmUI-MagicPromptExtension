@@ -26,6 +26,11 @@ function needsBaseUrl(backend) {
   return !FIXED_URL_BACKENDS.includes(backend);
 }
 
+function getReasoningMaxCompletionTokens(value, fallback = 8192) {
+  const tokenLimit = Number.parseInt(value, 10);
+  return Number.isInteger(tokenLimit) && tokenLimit > 0 ? tokenLimit : fallback;
+}
+
 // Updates base URL visibility based on selected backend
 function updateBaseUrlVisibility(backend, isVision = false) {
   const containerId = isVision ? 'visionBaseUrlContainer' : 'baseUrlContainer';
@@ -190,6 +195,16 @@ async function saveSettings(skipFeatureMappings = false) {
     const visionTimeout = isLinked
       ? chatTimeout
       : parseInt(document.getElementById('visionTimeout')?.value, 10);
+    const chatReasoningMaxCompletionTokens = getReasoningMaxCompletionTokens(
+      document.getElementById('reasoningMaxCompletionTokens')?.value,
+      MP.settings.backends[chatBackendId]?.reasoningMaxCompletionTokens ?? 8192
+    );
+    const visionReasoningMaxCompletionTokens = isLinked
+      ? chatReasoningMaxCompletionTokens
+      : getReasoningMaxCompletionTokens(
+          document.getElementById('visionReasoningMaxCompletionTokens')?.value,
+          MP.settings.backends[visionBackendId]?.reasoningMaxCompletionTokens ?? 8192
+        );
     // Create settings object matching exact structure expected by C# DefaultSettings
     const settings = {
       // Core settings
@@ -205,12 +220,14 @@ async function saveSettings(skipFeatureMappings = false) {
           baseurl: chatBaseUrl,
           unloadmodel: document.getElementById('unload_models_toggle')?.checked,
           timeout: !isNaN(chatTimeout) && chatTimeout >= 0 ? chatTimeout : MP.settings.backends[chatBackendId]?.timeout,
+          reasoningMaxCompletionTokens: chatReasoningMaxCompletionTokens,
         },
         [visionBackendId]: {
           ...MP.settings.backends[visionBackendId],
           baseurl: visionBaseUrl,
           unloadmodel: document.getElementById('unload_models_toggle')?.checked,
           timeout: !isNaN(visionTimeout) && visionTimeout >= 0 ? visionTimeout : MP.settings.backends[visionBackendId]?.timeout,
+          reasoningMaxCompletionTokens: visionReasoningMaxCompletionTokens,
         },
       },
       instructions: MP.settings.instructions,
@@ -1823,6 +1840,10 @@ function initSettingsModal() {
     if (reasoningToggle) {
       reasoningToggle.checked = MP.settings.backends[currentBackend]?.reasoning === true;
     }
+    const reasoningMaxCompletionTokens = document.getElementById('reasoningMaxCompletionTokens');
+    if (reasoningMaxCompletionTokens) {
+      reasoningMaxCompletionTokens.value = MP.settings.backends[currentBackend]?.reasoningMaxCompletionTokens ?? 8192;
+    }
     const currentVisionBackend = MP.settings.visionbackend || 'ollama';
     const currentVisionBackendRadio = document.getElementById(
       `${currentVisionBackend}VisionBtn`
@@ -1843,6 +1864,10 @@ function initSettingsModal() {
     const visionReasoningToggle = document.getElementById('visionReasoningToggle');
     if (visionReasoningToggle) {
       visionReasoningToggle.checked = MP.settings.backends[currentVisionBackend]?.reasoning === true;
+    }
+    const visionReasoningMaxCompletionTokens = document.getElementById('visionReasoningMaxCompletionTokens');
+    if (visionReasoningMaxCompletionTokens) {
+      visionReasoningMaxCompletionTokens.value = MP.settings.backends[currentVisionBackend]?.reasoningMaxCompletionTokens ?? 8192;
     }
     initInstructionsUI();
     initInstructionsTabInterface();
@@ -1902,6 +1927,10 @@ function initSettingsModal() {
         const reasoningToggle = document.getElementById('reasoningToggle');
         if (reasoningToggle) {
           reasoningToggle.checked = MP.settings.backends[backend]?.reasoning === true;
+        }
+        const reasoningMaxCompletionTokens = document.getElementById('reasoningMaxCompletionTokens');
+        if (reasoningMaxCompletionTokens) {
+          reasoningMaxCompletionTokens.value = MP.settings.backends[backend]?.reasoningMaxCompletionTokens ?? 8192;
         }
         const modelSelect = document.getElementById('modelSelect');
         if (modelSelect) {
@@ -1968,6 +1997,10 @@ function initSettingsModal() {
         const visionReasoningToggle = document.getElementById('visionReasoningToggle');
         if (visionReasoningToggle) {
           visionReasoningToggle.checked = MP.settings.backends[backend]?.reasoning === true;
+        }
+        const visionReasoningMaxCompletionTokens = document.getElementById('visionReasoningMaxCompletionTokens');
+        if (visionReasoningMaxCompletionTokens) {
+          visionReasoningMaxCompletionTokens.value = MP.settings.backends[backend]?.reasoningMaxCompletionTokens ?? 8192;
         }
         const modelSelect = document.getElementById('visionModel');
         if (modelSelect) {
@@ -2173,6 +2206,21 @@ function initSettingsModal() {
               );
             });
           }
+        } catch (error) {
+          console.error('Error saving chat timeout:', error);
+        }
+      }, 1000);
+      chatTimeoutInputEl.addEventListener('input', function (e) {
+        if (document.getElementById('linkModelsToggle')?.checked) {
+          const visionTimeoutSync = document.getElementById('visionTimeout');
+          if (visionTimeoutSync) {
+            visionTimeoutSync.value = e.target.value;
+          }
+        }
+        debouncedSaveChatTimeout(e.target.value);
+      });
+    }
+
     const visionReasoningToggleInput = document.getElementById('visionReasoningToggle');
     if (visionReasoningToggleInput) {
       visionReasoningToggleInput.addEventListener('change', async function (e) {
@@ -2192,8 +2240,7 @@ function initSettingsModal() {
               settings: { backends: { [currentBackend]: { reasoning } } },
             }, (data) => data.success ? resolve() : reject(new Error(data.error || 'Failed to save reasoning setting')), 0, reject);
           });
-          const chatBackend = MP.settings.backend;
-          if (chatBackend === currentBackend) {
+          if (MP.settings.backend === currentBackend) {
             const chatToggle = document.getElementById('reasoningToggle');
             if (chatToggle) chatToggle.checked = reasoning;
           }
@@ -2202,20 +2249,44 @@ function initSettingsModal() {
         }
       });
     }
-        } catch (error) {
-          console.error('Error saving chat timeout:', error);
+
+    const reasoningTokenInputs = [
+      ['reasoningMaxCompletionTokens', 'llmBackend', 'LLMBtn', 'backend'],
+      ['visionReasoningMaxCompletionTokens', 'visionBackendSelect', 'VisionBtn', 'visionbackend'],
+    ];
+    reasoningTokenInputs.forEach(([inputId, backendGroup, suffix, settingsBackendKey]) => {
+      const input = document.getElementById(inputId);
+      if (!input) return;
+      input.addEventListener('change', async function (e) {
+        const backend =
+          document
+            .querySelector(`input[name="${backendGroup}"]:checked`)
+            ?.id.replace(suffix, '')
+            .toLowerCase() || MP.settings[settingsBackendKey];
+        const tokenLimit = getReasoningMaxCompletionTokens(e.target.value);
+        e.target.value = tokenLimit;
+        if (!MP.settings.backends[backend]) {
+          MP.settings.backends[backend] = {};
         }
-      }, 1000);
-      chatTimeoutInputEl.addEventListener('input', function (e) {
-        if (document.getElementById('linkModelsToggle')?.checked) {
-          const visionTimeoutSync = document.getElementById('visionTimeout');
-          if (visionTimeoutSync) {
-            visionTimeoutSync.value = e.target.value;
+        MP.settings.backends[backend].reasoningMaxCompletionTokens = tokenLimit;
+        try {
+          await new Promise((resolve, reject) => {
+            genericRequest('SaveMagicPromptSettings', {
+              settings: { backends: { [backend]: { reasoningMaxCompletionTokens: tokenLimit } } },
+            }, (data) => data.success ? resolve() : reject(new Error(data.error || 'Failed to save reasoning token limit')), 0, reject);
+          });
+          if (settingsBackendKey === 'backend' && MP.settings.visionbackend === backend) {
+            const visionInput = document.getElementById('visionReasoningMaxCompletionTokens');
+            if (visionInput) visionInput.value = tokenLimit;
+          } else if (settingsBackendKey === 'visionbackend' && MP.settings.backend === backend) {
+            const chatInput = document.getElementById('reasoningMaxCompletionTokens');
+            if (chatInput) chatInput.value = tokenLimit;
           }
+        } catch (error) {
+          console.error('Error saving reasoning token limit:', error);
         }
-        debouncedSaveChatTimeout(e.target.value);
       });
-    }
+    });
 
     // Add event listeners for vision base URL changes with debounce
     const visionBackendUrlInput = document.getElementById('visionBackendUrl');

@@ -534,6 +534,11 @@ public class LLMAPICalls : MagicPromptAPI
             messageContent.Text = $"{messageContent.Text}";
             JObject backendConfig = (settings["backends"] as JObject)?[backend] as JObject;
             bool reasoning = backend is "openai" or "openaiapi" && backendConfig?["reasoning"]?.Value<bool>() == true;
+            int reasoningMaxCompletionTokens = backendConfig?["reasoningMaxCompletionTokens"]?.Value<int?>() ?? 8192;
+            if (reasoningMaxCompletionTokens < 1)
+            {
+                reasoningMaxCompletionTokens = 8192;
+            }
             // Create request with proper headers and body
             using HttpRequestMessage request = new(HttpMethod.Post, endpoint);
             if (!ConfigureRequest(request, backend, settings, session, out string error))
@@ -545,7 +550,7 @@ public class LLMAPICalls : MagicPromptAPI
             object requestBody;
             try
             {
-                requestBody = GetSchemaType(backend, messageContent, modelId, messageType, seed, reasoning);
+                requestBody = GetSchemaType(backend, messageContent, modelId, messageType, seed, reasoning, reasoningMaxCompletionTokens);
             }
             catch (ArgumentException ex)
             {

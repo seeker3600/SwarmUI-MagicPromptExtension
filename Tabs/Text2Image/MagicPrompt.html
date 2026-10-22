@@ -202,6 +202,10 @@
                                         <label class="form-check-label" for="reasoningToggle">Enable reasoning parameters</label>
                                         <div class="form-text">Use reasoning-model-compatible OpenAI request parameters.</div>
                                     </div>
+                                    <div class="form-group" id="reasoningMaxCompletionTokensContainer">
+                                        <label class="form-label" for="reasoningMaxCompletionTokens">Reasoning completion token limit</label>
+                                        <input type="number" class="form-control" id="reasoningMaxCompletionTokens" min="1" step="1" value="8192">
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -254,6 +258,10 @@
                                         <input class="form-check-input" type="checkbox" role="switch" id="visionReasoningToggle">
                                         <label class="form-check-label" for="visionReasoningToggle">Enable reasoning parameters</label>
                                         <div class="form-text">Use reasoning-model-compatible OpenAI request parameters.</div>
+                                    </div>
+                                    <div class="form-group" id="visionReasoningMaxCompletionTokensContainer">
+                                        <label class="form-label" for="visionReasoningMaxCompletionTokens">Reasoning completion token limit</label>
+                                        <input type="number" class="form-control" id="visionReasoningMaxCompletionTokens" min="1" step="1" value="8192">
                                     </div>
                                 </div>
                             </div>

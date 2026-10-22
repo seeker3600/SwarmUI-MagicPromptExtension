@@ -37,7 +37,7 @@ public static class BackendSchema
     /// <param name="model">Model name to use</param>
     /// <param name="messageType">Type of message (Text or Vision)</param>
     /// <returns>Returns an object with the schema type for the backend.</returns>
-    public static object GetSchemaType(string type, MessageContent content, string model, MessageType messageType = MessageType.Text, long seed = -1, bool reasoning = false)
+    public static object GetSchemaType(string type, MessageContent content, string model, MessageType messageType = MessageType.Text, long seed = -1, bool reasoning = false, int reasoningMaxCompletionTokens = 8192)
     {
         if (content == null || string.IsNullOrEmpty(model))
         {
@@ -49,7 +49,7 @@ public static class BackendSchema
         {
             "ollama" => OllamaRequestBody(content, model, messageType, seed),
             "grok" => OpenAICompatibleRequestBody(content, model, messageType, preferPngForBase64: true, seed),
-            "openai" or "openaiapi" or "openrouter" => OpenAICompatibleRequestBody(content, model, messageType, preferPngForBase64: false, seed, reasoning),
+            "openai" or "openaiapi" or "openrouter" => OpenAICompatibleRequestBody(content, model, messageType, preferPngForBase64: false, seed, reasoning, reasoningMaxCompletionTokens),
             "anthropic" => AnthropicRequestBody(content, model, messageType),
             _ => throw new ArgumentException($"Unsupported backend type: {type}")
         };
@@ -139,8 +139,9 @@ public static class BackendSchema
     }
 
     /// <summary>Generates a request body for OpenAI and compatible backends.</summary>
-    private static object OpenAICompatibleRequestBody(MessageContent content, string model, MessageType messageType, bool preferPngForBase64, long seed = -1, bool reasoning = false)
+    private static object OpenAICompatibleRequestBody(MessageContent content, string model, MessageType messageType, bool preferPngForBase64, long seed = -1, bool reasoning = false, int reasoningMaxCompletionTokens = 8192)
     {
+        reasoningMaxCompletionTokens = reasoningMaxCompletionTokens > 0 ? reasoningMaxCompletionTokens : 8192;
         List<object> messages = [];
         // Add system message if instructions exist
         if (!string.IsNullOrEmpty(content.Instructions))
@@ -178,7 +179,7 @@ public static class BackendSchema
                 {
                     model,
                     messages = messages.ToArray(),
-                    max_completion_tokens = 1000,
+                    max_completion_tokens = reasoningMaxCompletionTokens,
                     stream = false
                 };
             }
@@ -213,7 +214,7 @@ public static class BackendSchema
             {
                 model,
                 messages = messages.ToArray(),
-                max_completion_tokens = 1000,
+                max_completion_tokens = reasoningMaxCompletionTokens,
                 stream = false
             };
         }

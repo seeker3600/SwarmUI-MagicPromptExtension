@@ -28,6 +28,7 @@ public class SessionSettings : MagicPromptAPI
             ["baseurl"] = "http://localhost:11434",
             ["unloadModel"] = false,
             ["reasoning"] = false,
+            ["reasoningMaxCompletionTokens"] = 8192,
             ["timeout"] = 20,
             ["endpoints"] = new JObject
             {
@@ -39,6 +40,7 @@ public class SessionSettings : MagicPromptAPI
         {
             ["baseurl"] = "https://api.openai.com",
             ["reasoning"] = false,
+            ["reasoningMaxCompletionTokens"] = 8192,
             ["timeout"] = 20,
             ["endpoints"] = new JObject
             {

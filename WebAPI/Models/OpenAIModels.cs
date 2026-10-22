@@ -59,6 +59,9 @@ public class OpenAIMessage
 
     [JsonPropertyName("content")]
     public string Content { get; set; }
+
+    [JsonPropertyName("reasoning_content")]
+    public string ReasoningContent { get; set; }
 }
 
 public class OpenAIModel

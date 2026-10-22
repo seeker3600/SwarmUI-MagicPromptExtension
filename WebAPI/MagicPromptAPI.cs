@@ -90,14 +90,7 @@ public class MagicPromptAPI
             {
                 case "openai":
                     OpenAIResponse openAIResponse = System.Text.Json.JsonSerializer.Deserialize<OpenAIResponse>(responseContent, jsonSerializerOptions);
-                    if (openAIResponse?.Choices != null && openAIResponse.Choices.Count > 0)
-                    {
-                        messageContent = openAIResponse.Choices[0].Message.Content;
-                    }
-                    else
-                    {
-                        throw new InvalidOperationException("The response from OpenAI could not be processed (no choices found)");
-                    }
+                    messageContent = ExtractOpenAIContent(openAIResponse?.Choices, responseContent, "OpenAI");
                     break;
                 case "grok":
                     // Grok chat responses follow OpenAI-compatible chat completions structure
@@ -135,14 +128,7 @@ public class MagicPromptAPI
                     break;
                 case "openaiapi":
                     OpenAIAPIResponse openAIAPIResponse = System.Text.Json.JsonSerializer.Deserialize<OpenAIAPIResponse>(responseContent, jsonSerializerOptions);
-                    if (openAIAPIResponse?.Choices != null && openAIAPIResponse.Choices.Count > 0)
-                    {
-                        messageContent = openAIAPIResponse.Choices[0].Message.Content;
-                    }
-                    else
-                    {
-                        throw new InvalidOperationException("The response from the OpenAI-compatible API could not be processed (no choices found)");
-                    }
+                    messageContent = ExtractOpenAIContent(openAIAPIResponse?.Choices, responseContent, "OpenAI-compatible API");
                     break;
                 case "openrouter":
                     // First check for error response using the ErrorHandler
@@ -211,6 +197,28 @@ public class MagicPromptAPI
                 ErrorHandler.FormatErrorMessage(detectedErrorType, ex.Message, llmBackend)
             );
         }
+    }
+
+    private static string ExtractOpenAIContent(List<OpenAIChoice> choices, string responseContent, string backendName)
+    {
+        if (choices == null || choices.Count == 0)
+        {
+            throw new InvalidOperationException($"The response from {backendName} could not be processed (no choices found). Response: {responseContent}");
+        }
+
+        OpenAIChoice choice = choices[0];
+        string content = choice.Message?.Content;
+        if (!string.IsNullOrWhiteSpace(content))
+        {
+            return content;
+        }
+
+        string finishReason = choice.FinishReason ?? "unknown";
+        string responsePreview = responseContent.Length > 1000 ? responseContent[..1000] : responseContent;
+        Logs.Error($"MagicPromptExtension: {backendName} returned empty message content. finish_reason={finishReason}; response={responsePreview}");
+        throw new InvalidOperationException(
+            $"The response from {backendName} contained no final message content (finish_reason: {finishReason}). " +
+            $"The reasoning token budget may have been exhausted. Response: {responsePreview}");
     }
 
     /// <summary>Deserializes the API response into a list of models.</summary>

@@ -37,7 +37,7 @@ public static class BackendSchema
     /// <param name="model">Model name to use</param>
     /// <param name="messageType">Type of message (Text or Vision)</param>
     /// <returns>Returns an object with the schema type for the backend.</returns>
-    public static object GetSchemaType(string type, MessageContent content, string model, MessageType messageType = MessageType.Text, long seed = -1)
+    public static object GetSchemaType(string type, MessageContent content, string model, MessageType messageType = MessageType.Text, long seed = -1, bool reasoning = false)
     {
         if (content == null || string.IsNullOrEmpty(model))
         {
@@ -49,7 +49,7 @@ public static class BackendSchema
         {
             "ollama" => OllamaRequestBody(content, model, messageType, seed),
             "grok" => OpenAICompatibleRequestBody(content, model, messageType, preferPngForBase64: true, seed),
-            "openai" or "openaiapi" or "openrouter" => OpenAICompatibleRequestBody(content, model, messageType, preferPngForBase64: false, seed),
+            "openai" or "openaiapi" or "openrouter" => OpenAICompatibleRequestBody(content, model, messageType, preferPngForBase64: false, seed, reasoning),
             "anthropic" => AnthropicRequestBody(content, model, messageType),
             _ => throw new ArgumentException($"Unsupported backend type: {type}")
         };
@@ -139,7 +139,7 @@ public static class BackendSchema
     }
 
     /// <summary>Generates a request body for OpenAI and compatible backends.</summary>
-    private static object OpenAICompatibleRequestBody(MessageContent content, string model, MessageType messageType, bool preferPngForBase64, long seed = -1)
+    private static object OpenAICompatibleRequestBody(MessageContent content, string model, MessageType messageType, bool preferPngForBase64, long seed = -1, bool reasoning = false)
     {
         List<object> messages = [];
         // Add system message if instructions exist
@@ -172,6 +172,17 @@ public static class BackendSchema
                 content = contentList
             });
 
+            if (reasoning)
+            {
+                return new
+                {
+                    model,
+                    messages = messages.ToArray(),
+                    max_completion_tokens = 1000,
+                    stream = false
+                };
+            }
+
             if (seed != -1)
             {
                 return new
@@ -195,6 +206,17 @@ public static class BackendSchema
             };
         }
         messages.Add(new { role = "user", content = content.Text });
+
+        if (reasoning)
+        {
+            return new
+            {
+                model,
+                messages = messages.ToArray(),
+                max_completion_tokens = 1000,
+                stream = false
+            };
+        }
 
         if (seed != -1)
         {

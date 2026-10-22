@@ -532,6 +532,8 @@ public class LLMAPICalls : MagicPromptAPI
             }
             messageContent.Instructions = clientProvidedInstructions;
             messageContent.Text = $"{messageContent.Text}";
+            JObject backendConfig = (settings["backends"] as JObject)?[backend] as JObject;
+            bool reasoning = backend is "openai" or "openaiapi" && backendConfig?["reasoning"]?.Value<bool>() == true;
             // Create request with proper headers and body
             using HttpRequestMessage request = new(HttpMethod.Post, endpoint);
             if (!ConfigureRequest(request, backend, settings, session, out string error))
@@ -543,7 +545,7 @@ public class LLMAPICalls : MagicPromptAPI
             object requestBody;
             try
             {
-                requestBody = GetSchemaType(backend, messageContent, modelId, messageType, seed);
+                requestBody = GetSchemaType(backend, messageContent, modelId, messageType, seed, reasoning);
             }
             catch (ArgumentException ex)
             {

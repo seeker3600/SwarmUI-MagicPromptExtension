@@ -1819,6 +1819,10 @@ function initSettingsModal() {
     if (chatTimeoutInput) {
       chatTimeoutInput.value = MP.settings.backends[currentBackend]?.timeout ?? 20;
     }
+    const reasoningToggle = document.getElementById('reasoningToggle');
+    if (reasoningToggle) {
+      reasoningToggle.checked = MP.settings.backends[currentBackend]?.reasoning === true;
+    }
     const currentVisionBackend = MP.settings.visionbackend || 'ollama';
     const currentVisionBackendRadio = document.getElementById(
       `${currentVisionBackend}VisionBtn`
@@ -1835,6 +1839,10 @@ function initSettingsModal() {
     const visionTimeoutInput = document.getElementById('visionTimeout');
     if (visionTimeoutInput) {
       visionTimeoutInput.value = MP.settings.backends[currentVisionBackend]?.timeout ?? 20;
+    }
+    const visionReasoningToggle = document.getElementById('visionReasoningToggle');
+    if (visionReasoningToggle) {
+      visionReasoningToggle.checked = MP.settings.backends[currentVisionBackend]?.reasoning === true;
     }
     initInstructionsUI();
     initInstructionsTabInterface();
@@ -1890,6 +1898,10 @@ function initSettingsModal() {
         const chatTimeoutInput = document.getElementById('chatTimeout');
         if (chatTimeoutInput) {
           chatTimeoutInput.value = MP.settings.backends[backend]?.timeout ?? 20;
+        }
+        const reasoningToggle = document.getElementById('reasoningToggle');
+        if (reasoningToggle) {
+          reasoningToggle.checked = MP.settings.backends[backend]?.reasoning === true;
         }
         const modelSelect = document.getElementById('modelSelect');
         if (modelSelect) {
@@ -1952,6 +1964,10 @@ function initSettingsModal() {
         const visionTimeoutInput = document.getElementById('visionTimeout');
         if (visionTimeoutInput) {
           visionTimeoutInput.value = MP.settings.backends[backend]?.timeout ?? 20;
+        }
+        const visionReasoningToggle = document.getElementById('visionReasoningToggle');
+        if (visionReasoningToggle) {
+          visionReasoningToggle.checked = MP.settings.backends[backend]?.reasoning === true;
         }
         const modelSelect = document.getElementById('visionModel');
         if (modelSelect) {
@@ -2086,6 +2102,35 @@ function initSettingsModal() {
         debouncedSaveUrl(e.target.value);
       });
     }
+    const reasoningToggleInput = document.getElementById('reasoningToggle');
+    if (reasoningToggleInput) {
+      reasoningToggleInput.addEventListener('change', async function (e) {
+        const currentBackend =
+          document
+            .querySelector('input[name="llmBackend"]:checked')
+            ?.id.replace('LLMBtn', '')
+            .toLowerCase() || MP.settings.backend;
+        const reasoning = e.target.checked;
+        if (!MP.settings.backends[currentBackend]) {
+          MP.settings.backends[currentBackend] = {};
+        }
+        MP.settings.backends[currentBackend].reasoning = reasoning;
+        try {
+          await new Promise((resolve, reject) => {
+            genericRequest('SaveMagicPromptSettings', {
+              settings: { backends: { [currentBackend]: { reasoning } } },
+            }, (data) => data.success ? resolve() : reject(new Error(data.error || 'Failed to save reasoning setting')), 0, reject);
+          });
+          const visionBackend = MP.settings.visionbackend;
+          if (visionBackend === currentBackend) {
+            const visionToggle = document.getElementById('visionReasoningToggle');
+            if (visionToggle) visionToggle.checked = reasoning;
+          }
+        } catch (error) {
+          console.error('Error saving reasoning setting:', error);
+        }
+      });
+    }
     const chatTimeoutInputEl = document.getElementById('chatTimeout');
     if (chatTimeoutInputEl) {
       const debouncedSaveChatTimeout = debounce(async function (value) {
@@ -2128,6 +2173,35 @@ function initSettingsModal() {
               );
             });
           }
+    const visionReasoningToggleInput = document.getElementById('visionReasoningToggle');
+    if (visionReasoningToggleInput) {
+      visionReasoningToggleInput.addEventListener('change', async function (e) {
+        const currentBackend =
+          document
+            .querySelector('input[name="visionBackendSelect"]:checked')
+            ?.id.replace('VisionBtn', '')
+            .toLowerCase() || MP.settings.visionbackend;
+        const reasoning = e.target.checked;
+        if (!MP.settings.backends[currentBackend]) {
+          MP.settings.backends[currentBackend] = {};
+        }
+        MP.settings.backends[currentBackend].reasoning = reasoning;
+        try {
+          await new Promise((resolve, reject) => {
+            genericRequest('SaveMagicPromptSettings', {
+              settings: { backends: { [currentBackend]: { reasoning } } },
+            }, (data) => data.success ? resolve() : reject(new Error(data.error || 'Failed to save reasoning setting')), 0, reject);
+          });
+          const chatBackend = MP.settings.backend;
+          if (chatBackend === currentBackend) {
+            const chatToggle = document.getElementById('reasoningToggle');
+            if (chatToggle) chatToggle.checked = reasoning;
+          }
+        } catch (error) {
+          console.error('Error saving vision reasoning setting:', error);
+        }
+      });
+    }
         } catch (error) {
           console.error('Error saving chat timeout:', error);
         }

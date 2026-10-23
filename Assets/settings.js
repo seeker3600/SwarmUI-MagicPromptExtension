@@ -424,6 +424,7 @@ async function fetchModels() {
     return await requestPromise;
   } catch (error) {
     console.error('Error fetching models:', error);
+    showError(`MagicPrompt model list unavailable: ${error.message || 'Check your backend URL and LLM status.'}`);
 
     if (myGeneration === MP.fetchModelsGeneration) {
       // Clear and show error state in dropdowns

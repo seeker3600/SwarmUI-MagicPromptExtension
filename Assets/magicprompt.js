@@ -107,18 +107,16 @@ if (!window.MP) {
                 try {
                     return new Promise((resolve, reject) => {
                         genericRequest('MagicPromptPhoneHome', payload,
-                                data => {
-                                    if (data.success) {
-                                        console.log('API request successful:', data);
-                                        resolve(data);
-                                    } else {
-                                        const errorMessage = data.error || 'API request failed';
-                                        console.error('API request failed:', errorMessage);
-                                        showError(`MagicPrompt unavailable: ${errorMessage}`);
-                                        reject(new Error(errorMessage));
-                                    }
+                            data => {
+                                if (data.success) {
+                                    console.log('API request successful:', data);
+                                    resolve(data);
+                                } else {
+                                    console.error('API request failed:', data.error);
+                                    reject(new Error(data.error || 'API request failed'));
                                 }
-                            );
+                            }
+                        );
                     });
                 } catch (error) {
                     console.error('API request error:', error);

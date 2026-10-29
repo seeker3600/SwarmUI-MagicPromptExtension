@@ -97,14 +97,10 @@ public class PromptHandler
             if (string.IsNullOrEmpty(response))
             {
                 Logs.Error($"MagicPromptExtension.PromptHandler: empty response from LLM for tag #{tagIndex}: {fullTag}");
-                throw new SwarmReadableErrorException("[MagicPrompt] The LLM returned an empty response.");
+                return content; // Fall back to original content for empty (non-error) responses
             }
 
             return response;
-        }
-        catch (SwarmReadableErrorException)
-        {
-            throw;
         }
         catch (Exception ex)
         {
@@ -141,12 +137,7 @@ public class PromptHandler
         }
 
         var llmResponse = resp?["response"]?.ToString();
-        if (string.IsNullOrWhiteSpace(llmResponse))
-        {
-            throw new InvalidOperationException("The LLM returned an empty response.");
-        }
-
-        return llmResponse;
+        return string.IsNullOrWhiteSpace(llmResponse) ? null : llmResponse;
     }
 
     /// <summary>

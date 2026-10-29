@@ -431,12 +431,12 @@ public class LLMAPICalls : MagicPromptAPI
     {
         try
         {
+            long seed = requestData["seed"]?.Value<long>() ?? -1;
+
             if (requestData == null)
             {
                 return CreateErrorResponse("Request data is null");
             }
-
-            long seed = requestData["seed"]?.Value<long>() ?? -1;
             // Safely parse message content
             JToken messageContentToken = requestData["messageContent"];
             if (messageContentToken == null)

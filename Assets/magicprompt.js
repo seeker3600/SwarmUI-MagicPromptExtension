@@ -630,9 +630,13 @@ document.addEventListener("DOMContentLoaded", async function () {
             // Persist any in-memory settings changes when the modal is closed
             saveSettings();
         });
-        // Initialize models
-        await fetchModels();
-        MP.modelsInitialized = true;
+        // Model API availability must not prevent the rest of the extension UI from initializing.
+        try {
+            await fetchModels();
+            MP.modelsInitialized = true;
+        } catch (error) {
+            console.error('Initial model fetch failed; automatic retry will continue:', error);
+        }
         // Initialize handlers
         if (window.visionHandler) {
             await window.visionHandler.initialize();

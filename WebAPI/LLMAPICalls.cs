@@ -22,8 +22,11 @@ public class LLMAPICalls : MagicPromptAPI
     private static readonly object _reachabilityLock = new();
     private static readonly Dictionary<string, (bool reachable, DateTime checkedUtc)> _reachabilityCache = new();
     private static readonly TimeSpan ReachabilityCacheTtlSuccess = TimeSpan.FromSeconds(10);
-    private static readonly TimeSpan ReachabilityCacheTtlFailure = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan ReachabilityCacheTtlFailure = TimeSpan.FromSeconds(10);
     private const int ReachabilityTimeoutSeconds = 3;
+
+    /// <summary>Contains a model-list result and whether a later retry may succeed.</summary>
+    private sealed record ModelFetchResult(List<ModelData> Models, bool Retryable, string Error = null);
 
     // Disable global timeout; per-request CancellationTokenSource controls timeout instead
     private static HttpClient CreateHttpClient()
@@ -35,7 +38,7 @@ public class LLMAPICalls : MagicPromptAPI
 
     /// <summary>Checks whether a local backend server is reachable with a fast probe.
     /// Returns true for cloud backends (they fail fast on their own via DNS/TLS).
-    /// Results are cached: 10s on success, 30s on failure to avoid repeated probes to a dead server.</summary>
+    /// Results are cached for up to 10 seconds to avoid repeated probes to an unavailable server.</summary>
     public static async Task<bool> IsServerReachable(string backend, JObject settings)
     {
         backend = backend?.ToLower();
@@ -68,7 +71,7 @@ public class LLMAPICalls : MagicPromptAPI
         {
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(ReachabilityTimeoutSeconds));
             using var request = new HttpRequestMessage(HttpMethod.Get, baseUrl);
-            HttpResponseMessage response = await HttpClient.SendAsync(request, cts.Token);
+            using HttpResponseMessage response = await HttpClient.SendAsync(request, cts.Token);
             // Any HTTP response (even 4xx/5xx) means the server is running
             reachable = true;
         }
@@ -104,24 +107,33 @@ public class LLMAPICalls : MagicPromptAPI
             }
             string chatBackend = settings["backend"]?.ToString()?.ToLower() ?? "openrouter";
             string visionBackend = settings["visionbackend"]?.ToString()?.ToLower() ?? "openrouter";
-            // Get chat models
-            List<ModelData> chatModels = await GetModelsForBackend(chatBackend, settings, false, session);
-            if (chatModels == null || !chatModels.Any())
+            ModelFetchResult chatResult = await FetchModelsForBackend(chatBackend, settings, false, session);
+            ModelFetchResult visionResult = await FetchModelsForBackend(visionBackend, settings, true, session);
+            bool chatAvailable = chatResult.Models.Count > 0;
+            bool visionAvailable = visionResult.Models.Count > 0;
+            bool retryable = chatResult.Retryable || visionResult.Retryable;
+            if (!chatAvailable && !visionAvailable)
             {
-                return CreateErrorResponse($"Failed to fetch models for {chatBackend}. Please check your API key and try again.");
+                string error = chatResult.Error ?? visionResult.Error ??
+                    $"Failed to fetch models for {chatBackend} and {visionBackend}. Please check the backend configuration.";
+                return new JObject
+                {
+                    ["success"] = false,
+                    ["error"] = error,
+                    ["retryable"] = retryable,
+                    ["chatRetryable"] = chatResult.Retryable,
+                    ["visionRetryable"] = visionResult.Retryable
+                };
             }
-            // Get vision models
-            List<ModelData> visionmodels = await GetModelsForBackend(visionBackend, settings, true, session);
-            if (visionmodels == null || !visionmodels.Any())
-            {
-                return CreateErrorResponse($"Failed to fetch vision models for {visionBackend}. Please check your API key and try again.");
-            }
-            // Create combined response
             return JObject.FromObject(new
             {
                 success = true,
-                models = chatModels,
-                visionmodels,
+                models = chatResult.Models,
+                visionmodels = visionResult.Models,
+                chatRetryable = chatResult.Retryable,
+                visionRetryable = visionResult.Retryable,
+                chatError = chatResult.Error,
+                visionError = visionResult.Error,
                 settings
             });
         }
@@ -142,12 +154,18 @@ public class LLMAPICalls : MagicPromptAPI
 
     public static async Task<List<ModelData>> GetModelsForBackend(string backend, JObject settings, bool isVision = false, Session session = null)
     {
+        ModelFetchResult result = await FetchModelsForBackend(backend, settings, isVision, session);
+        return result.Models;
+    }
+
+    private static async Task<ModelFetchResult> FetchModelsForBackend(string backend, JObject settings, bool isVision, Session session)
+    {
         // Fast-fail for unreachable local backends instead of waiting for the full timeout
         if (!await IsServerReachable(backend, settings))
         {
             string baseUrl = (settings["backends"] as JObject)?[backend]?["baseurl"]?.ToString() ?? "unknown";
             Logs.Error($"[MagicPrompt] {backend} server at {baseUrl} is not reachable. Skipping model fetch.");
-            return [];
+            return new ModelFetchResult([], true, $"{backend} server at {baseUrl} is not reachable.");
         }
         // Get endpoint based on backend
         string endpoint = GetEndpoint(backend, settings, "models");
@@ -155,14 +173,14 @@ public class LLMAPICalls : MagicPromptAPI
         {
             string errorMessage = $"Failed to get endpoint for backend: {backend}";
             Logs.Error($"MagicPromptExtension.LLMAPICalls: {errorMessage}");
-            return [];
+            return new ModelFetchResult([], false, errorMessage);
         }
         // Create and configure request
-        HttpRequestMessage request = new(HttpMethod.Get, endpoint);
+        using HttpRequestMessage request = new(HttpMethod.Get, endpoint);
         if (!ConfigureRequest(request, backend, settings, session, out string error))
         {
             Logs.Error($"MagicPromptExtension.LLMAPICalls: {error}");
-            return [];
+            return new ModelFetchResult([], false, error);
         }
 
         // Send request and handle response
@@ -173,42 +191,45 @@ public class LLMAPICalls : MagicPromptAPI
             // Get timeout from backend settings, defaulting to 20 seconds for model listing
             int timeoutSec = GetBackendTimeout(settings, backend, defaultTimeout: 20);
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSec));
-            HttpResponseMessage response = await HttpClient.SendAsync(request, cts.Token);
+            using HttpResponseMessage response = await HttpClient.SendAsync(request, cts.Token);
             string responseContent = await response.Content.ReadAsStringAsync();
 
             if (response.IsSuccessStatusCode)
             {
                 List<ModelData> models = MagicPromptAPI.DeserializeModels(responseContent, backend);
-                return models ?? [];
+                return new ModelFetchResult(models ?? [], false);
             }
             else
             {
                 // Process error using the ErrorHandler
                 string errorMessage = ErrorHandler.ProcessErrorResponse(responseContent, response.StatusCode, backend);
                 Logs.Error($"MagicPromptExtension.LLMAPICalls: Error fetching models for {backend}: {errorMessage}");
-                return [];
+                bool retryable = response.StatusCode == System.Net.HttpStatusCode.RequestTimeout
+                    || (int)response.StatusCode == 429
+                    || (int)response.StatusCode >= 500;
+                return new ModelFetchResult([], retryable, errorMessage);
             }
         }
         catch (System.Threading.Tasks.TaskCanceledException)
         {
             Logs.Error($"MagicPromptExtension.LLMAPICalls: Model listing request timed out for backend {backend} ({endpoint})");
-            return [];
+            return new ModelFetchResult([], true, $"Model listing request timed out for {backend}.");
         }
         catch (OperationCanceledException)
         {
             Logs.Error($"MagicPromptExtension.LLMAPICalls: Model listing request was canceled (timeout) for backend {backend} ({endpoint})");
-            return [];
+            return new ModelFetchResult([], true, $"Model listing request timed out for {backend}.");
         }
         catch (HttpRequestException ex)
         {
             // Handle network connectivity issues
             Logs.Error($"MagicPromptExtension.LLMAPICalls: HTTP request error fetching models for {backend}: {ex.Message}");
-            return [];
+            return new ModelFetchResult([], true, ex.Message);
         }
         catch (Exception ex)
         {
             Logs.Error($"MagicPromptExtension.LLMAPICalls: Exception fetching models for {backend}: {ex.Message}");
-            return [];
+            return new ModelFetchResult([], false, ex.Message);
         }
     }
 

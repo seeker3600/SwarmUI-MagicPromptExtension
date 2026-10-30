@@ -314,15 +314,21 @@ async function fetchModels() {
     return Promise.reject(new Error('Model select elements not found'));
   }
 
-  // Clear existing models when starting a new fetch
-  modelSelect.innerHTML = '';
-  visionModelSelect.innerHTML = '';
+  if (MP.modelFetchRetryTimer) {
+    clearTimeout(MP.modelFetchRetryTimer);
+    MP.modelFetchRetryTimer = null;
+  }
 
-  // Add loading options
-  const loadingOption = new Option('Loading models...', '');
-  loadingOption.disabled = true;
-  modelSelect.add(loadingOption.cloneNode(true));
-  visionModelSelect.add(loadingOption.cloneNode(true));
+  if (modelSelect.options.length == 0) {
+    let loadingOption = new Option('Loading models...', '');
+    loadingOption.disabled = true;
+    modelSelect.add(loadingOption);
+  }
+  if (visionModelSelect.options.length == 0) {
+    let loadingOption = new Option('Loading models...', '');
+    loadingOption.disabled = true;
+    visionModelSelect.add(loadingOption);
+  }
 
   // Tags this call so a stale response (e.g. from a hung request against an old URL) can't overwrite a newer one
   const myGeneration = (MP.fetchModelsGeneration = (MP.fetchModelsGeneration || 0) + 1);
@@ -353,13 +359,17 @@ async function fetchModels() {
             if (data.success) {
               resolve(data);
             } else {
-              reject(new Error(data.error || 'Failed to fetch models'));
+              let requestError = new Error(data.error || 'Failed to fetch models');
+              requestError.retryable = data.retryable === true;
+              reject(requestError);
             }
           },
           0,
           (err) => {
             console.error('Error fetching models:', err);
-            reject(new Error(err?.message || 'Failed to fetch models'));
+            let requestError = new Error(err?.message || 'Failed to fetch models');
+            requestError.retryable = true;
+            reject(requestError);
           }
         );
       });
@@ -368,12 +378,9 @@ async function fetchModels() {
         return response;
       }
 
-      // Clear existing models
-      modelSelect.innerHTML = '';
-      visionModelSelect.innerHTML = '';
-
       // Add chat models
-      if (Array.isArray(response.models)) {
+      if (Array.isArray(response.models) && response.models.length > 0) {
+        modelSelect.innerHTML = '';
         const existingModelIds = new Set();
         const defaultOption = new Option('-- Select a model --', '');
         modelSelect.add(defaultOption);
@@ -393,10 +400,13 @@ async function fetchModels() {
         if (MP.settings.model) {
           setModelIfExists(modelSelect, MP.settings.model);
         }
+      } else {
+        showModelFetchError(modelSelect, response.chatError, response.chatRetryable);
       }
 
       // Add vision models
-      if (Array.isArray(response.visionmodels)) {
+      if (Array.isArray(response.visionmodels) && response.visionmodels.length > 0) {
+        visionModelSelect.innerHTML = '';
         const existingVisionModelIds = new Set();
         const defaultOption = new Option('-- Select a vision model --', '');
         visionModelSelect.add(defaultOption);
@@ -416,6 +426,15 @@ async function fetchModels() {
         if (MP.settings.visionmodel) {
           setModelIfExists(visionModelSelect, MP.settings.visionmodel);
         }
+      } else {
+        showModelFetchError(visionModelSelect, response.visionError, response.visionRetryable);
+      }
+
+      const hasRetryableFailure = response.chatRetryable === true || response.visionRetryable === true;
+      if (hasRetryableFailure) {
+        scheduleModelFetchRetry();
+      } else {
+        MP.modelFetchRetryAttempt = 0;
       }
 
       return response;
@@ -426,21 +445,57 @@ async function fetchModels() {
     console.error('Error fetching models:', error);
 
     if (myGeneration === MP.fetchModelsGeneration) {
-      // Clear and show error state in dropdowns
-      modelSelect.innerHTML = '';
-      visionModelSelect.innerHTML = '';
-
-      const errorOption = new Option(
-        'Error loading models - Check URL and try again',
-        ''
-      );
-      errorOption.disabled = true;
-      modelSelect.add(errorOption.cloneNode(true));
-      visionModelSelect.add(errorOption.cloneNode(true));
+      showModelFetchError(modelSelect, error.message, error.retryable);
+      showModelFetchError(visionModelSelect, error.message, error.retryable);
+      if (error.retryable) {
+        scheduleModelFetchRetry();
+      }
     }
 
     return Promise.reject(error);
   }
+}
+
+/**
+ * Shows the model-list status without discarding previously loaded model choices.
+ */
+function showModelFetchError(select, error, retryable) {
+  let hasModels = false;
+  for (let index = 0; index < select.options.length; index++) {
+    let option = select.options[index];
+    if (option.value && !option.disabled) {
+      hasModels = true;
+      break;
+    }
+  }
+  if (hasModels) {
+    return;
+  }
+  select.innerHTML = '';
+  let message = retryable
+    ? 'Backend unavailable - retrying automatically...'
+    : (error || 'No models available');
+  let errorOption = new Option(message, '');
+  errorOption.disabled = true;
+  select.add(errorOption);
+}
+
+/**
+ * Retries transient model-list failures with a delay capped at ten seconds.
+ */
+function scheduleModelFetchRetry() {
+  if (MP.modelFetchRetryTimer) {
+    return;
+  }
+  let attempt = (MP.modelFetchRetryAttempt || 0) + 1;
+  MP.modelFetchRetryAttempt = attempt;
+  let delay = Math.min(1000 * (2 ** (attempt - 1)), 10000);
+  MP.modelFetchRetryTimer = setTimeout(() => {
+    MP.modelFetchRetryTimer = null;
+    fetchModels().catch((error) => {
+      console.error('Automatic model-list retry failed:', error);
+    });
+  }, delay);
 }
 
 function updateModelListOnLeft() {

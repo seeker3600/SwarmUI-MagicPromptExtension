@@ -115,6 +115,12 @@ if (!window.MP) {
                                     console.error('API request failed:', data.error);
                                     reject(new Error(data.error || 'API request failed'));
                                 }
+                            },
+                            0,
+                            error => {
+                                const errorMessage = error instanceof Error ? error.message : String(error || 'API request failed');
+                                console.error('API request error:', errorMessage);
+                                reject(new Error(errorMessage));
                             }
                         );
                     });

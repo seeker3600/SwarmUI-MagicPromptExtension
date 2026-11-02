@@ -12,6 +12,7 @@ public class MagicPromptExtension : Extension
 {
     private static readonly PromptCache _promptCache = new();
     private static T2IRegisteredParam<bool> _paramUseCache;
+    private static T2IRegisteredParam<bool> _paramResolveSwarmTags;
     private static T2IRegisteredParam<string> _paramModelId;
     private static T2IRegisteredParam<string> _paramInstructions;
 
@@ -66,13 +67,21 @@ public class MagicPromptExtension : Extension
             OrderPriority: 2
         ));
 
+        _paramResolveSwarmTags = T2IParamTypes.Register<bool>(new T2IParamType(
+            Name: "MP Resolve SwarmUI Tags",
+            Description: "Resolve SwarmUI tags inside mpprompt content before sending it to the LLM.",
+            Default: "true",
+            Group: paramGroup,
+            OrderPriority: 3
+        ));
+
         _paramModelId = T2IParamTypes.Register<string>(new T2IParamType(
             Name: "MP Model ID",
             Description: "Select an LLM to use for this batch",
             Default: "loading",
             IgnoreIf: "loading",
             Group: paramGroup,
-            OrderPriority: 3,
+            OrderPriority: 4,
             ValidateValues: false,
             GetValues: ModelListProvider.GetModelList
         ));
@@ -83,7 +92,7 @@ public class MagicPromptExtension : Extension
             Default: "loading",
             IgnoreIf: "loading",
             Group: paramGroup,
-            OrderPriority: 4,
+            OrderPriority: 5,
             ValidateValues: false,
             GetValues: ModelListProvider.GetInstructionList
         ));
@@ -103,7 +112,7 @@ public class MagicPromptExtension : Extension
         }
 
         var instructionPart = !string.IsNullOrEmpty(context.PreData) ? $"[{context.PreData}]" : "";
-        var parsedData = context.Parse(data);
+        var parsedData = context.Input?.Get(_paramResolveSwarmTags) != false ? context.Parse(data) : data;
         return $"<mpprompt{instructionPart}:{parsedData}>";
     }
 

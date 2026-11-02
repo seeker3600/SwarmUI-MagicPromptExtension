@@ -71,6 +71,7 @@ public class PromptHandler
             var mppromptContent = ResolveMpresponseReferences(match.Groups[2].Value, llmResponses);
 
             var llmResponse = GetLlmResponse(mppromptContent, userInput, instructionId, useCache, i, fullTag);
+            llmResponse = ProcessLlmResponseTags(llmResponse, userInput);
             llmResponses.Add(llmResponse);
             prompt = prompt.Replace(fullTag, llmResponse);
         }
@@ -107,6 +108,23 @@ public class PromptHandler
             Logs.Error($"MagicPromptExtension.PromptHandler: LLM call failed for tag #{tagIndex} '{fullTag}': {ex.Message}");
             throw new SwarmReadableErrorException($"[MagicPrompt] LLM request failed: {ex.Message}");
         }
+    }
+
+    private static string ProcessLlmResponseTags(string response, T2IParamInput userInput)
+    {
+        T2IPromptHandling.PromptTagContext context = new()
+        {
+            Input = userInput,
+            Param = T2IParamTypes.Prompt.Type.ID
+        };
+
+        if (userInput.ExtraMeta.TryGetValue("mp_variables", out object variablesObj) &&
+            variablesObj is Dictionary<string, string> variables)
+        {
+            context.Variables = new Dictionary<string, string>(variables);
+        }
+
+        return T2IPromptHandling.ProcessPromptLike(response, context, true);
     }
 
     private string MakeLlmRequest(string prompt, T2IParamInput userInput, string instructionId = null)
